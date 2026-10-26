@@ -1,0 +1,29 @@
+{
+  "name": "emergency112-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "expo": "~57.0.29",
+    "expo-build-properties": "~57.0.22",
+    "expo-intent-launcher": "~57.0.1",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.10",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  }
+}

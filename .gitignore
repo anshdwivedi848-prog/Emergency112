@@ -1,0 +1,59 @@
+# Dependencies and generated output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+**/coverage/
+build/
+**/build/
+web-build/
+**/web-build/
+backend/**/bin/
+backend/**/obj/
+backend/**/TestResults/
+**/.expo/
+**/.expo-home/
+**/android/
+**/ios/
+**/.gradle/
+.tools/
+backend/.local-tools/
+*.tsbuildinfo
+
+# Local environment and application settings. Keep only documented templates.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+backend/**/appsettings*.json
+!backend/**/appsettings.example.json
+**/secrets.*
+**/secrets/**
+**/credentials.*
+**/credentials/**
+**/credentials.json
+**/DataProtection-Keys/**
+
+# Local databases and database sidecar files
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Signing material and certificates
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.snk
+
+# Operating system metadata
+.DS_Store
+Thumbs.db

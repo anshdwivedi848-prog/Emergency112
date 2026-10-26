@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Emergency112",
+    "slug": "emergency112-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "android": {
+      "package": "com.emergency112.demo",
+      "versionCode": 3,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon-foreground.png",
+        "backgroundColor": "#172B43"
+      },
+      "permissions": [
+        "android.permission.CALL_PHONE"
+      ],
+      "usesCleartextTraffic": true
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "imageWidth": 290,
+          "resizeMode": "contain",
+          "backgroundColor": "#F5F7F8"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8da10e69-6f9e-4faf-90ae-f24a6aa88f9e"
+      }
+    }
+  }
+}
