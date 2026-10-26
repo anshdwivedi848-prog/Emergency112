@@ -5,11 +5,25 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+var databaseSettings = DatabaseProviderConfiguration.Resolve(builder.Configuration, builder.Environment);
 var allowedOrigins = builder.Configuration.GetSection("Frontend:AllowedOrigins").Get<string[]>() ?? [];
+ValidateAllowedOrigins(allowedOrigins, builder.Environment.IsDevelopment());
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+if (databaseSettings.Provider == DatabaseProvider.Sqlite)
+{
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+        options.UseSqlite(databaseSettings.ConnectionString));
+}
+else
+{
+    builder.Services.AddDbContext<PostgresApplicationDbContext>(options => options
+        .UseNpgsql(databaseSettings.ConnectionString, postgres => postgres
+            .MigrationsAssembly(typeof(PostgresApplicationDbContext).Assembly.FullName)));
+    builder.Services.AddScoped<ApplicationDbContext>(services =>
+        services.GetRequiredService<PostgresApplicationDbContext>());
+}
+
+var identity = builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
     {
         options.Password.RequiredLength = builder.Configuration.GetValue("Identity:Password:RequiredLength", 12);
         options.Password.RequireDigit = builder.Configuration.GetValue("Identity:Password:RequireDigit", true);
@@ -17,12 +31,14 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
         options.Password.RequireUppercase = builder.Configuration.GetValue("Identity:Password:RequireUppercase", true);
         options.Password.RequireNonAlphanumeric = builder.Configuration.GetValue("Identity:Password:RequireNonAlphanumeric", true);
         options.User.RequireUniqueEmail = true;
-    })
-    .AddEntityFrameworkStores<ApplicationDbContext>();
+    });
+if (databaseSettings.Provider == DatabaseProvider.Sqlite)
+    identity.AddEntityFrameworkStores<ApplicationDbContext>();
+else
+    identity.AddEntityFrameworkStores<PostgresApplicationDbContext>();
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.Name = "Emergency112.Auth";
-    options.Cookie.HttpOnly = true;
     options.Cookie.HttpOnly = true;
     options.Cookie.SameSite = SameSiteMode.Strict;
     options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
@@ -63,10 +79,16 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+var migrateOnStartup = app.Configuration.GetValue<bool?>("Database:MigrateOnStartup")
+    ?? (app.Environment.IsDevelopment() || databaseSettings.Provider == DatabaseProvider.PostgreSql);
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    if (app.Environment.IsDevelopment()) await db.Database.MigrateAsync();
+    if (migrateOnStartup)
+        await db.Database.MigrateAsync();
+    else
+        app.Logger.LogInformation("Database startup migrations are disabled; the selected schema must already be applied.");
+
     await DatabaseSeeder.SeedAsync(scope.ServiceProvider, app.Configuration, app.Environment.IsDevelopment());
 }
 
@@ -74,5 +96,16 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", mode = "sim
     .WithTags("Health");
 app.MapControllers();
 app.Run();
+
+static void ValidateAllowedOrigins(string[] origins, bool development)
+{
+    if (development) return;
+    if (origins.Length == 0 || origins.Any(origin => origin == "*"
+        || !Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+        || uri.Scheme != Uri.UriSchemeHttps
+        || !string.Equals(origin.TrimEnd('/'), uri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase)))
+        throw new InvalidOperationException(
+            "Production requires explicit HTTPS Frontend:AllowedOrigins entries. Wildcard and non-HTTPS origins are not allowed with cookie authentication.");
+}
 
 public partial class Program;

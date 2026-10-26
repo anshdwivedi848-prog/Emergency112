@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Emergency112.Api.Data;
 
-public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
+public class ApplicationDbContext(DbContextOptions options)
     : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
     public DbSet<Incident> Incidents => Set<Incident>();
@@ -41,3 +41,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             .HasForeignKey(x => x.AssignedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+/// <summary>
+/// PostgreSQL uses a distinct EF context and migration chain. The entity model is shared
+/// with the local SQLite context, while EF scopes migration discovery to this context type.
+/// </summary>
+public sealed class PostgresApplicationDbContext(DbContextOptions<PostgresApplicationDbContext> options)
+    : ApplicationDbContext(options);

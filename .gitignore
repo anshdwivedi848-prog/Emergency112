@@ -19,6 +19,8 @@ backend/**/TestResults/
 **/.gradle/
 .tools/
 backend/.local-tools/
+backend/.build-output/
+**/.build-output/
 *.tsbuildinfo
 
 # Local environment and application settings. Keep only documented templates.

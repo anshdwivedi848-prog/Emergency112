@@ -9,7 +9,7 @@ Emergency112 is a college demonstration project for a simulated emergency report
 - **Citizen and admin website:** React, TypeScript, Vite, React Router.
 - **API:** ASP.NET Core Web API on .NET 10, with development-only Swagger UI.
 - **Authentication:** ASP.NET Core Identity with hashed passwords and HttpOnly, SameSite cookies. Admin authorization is enforced by API role policies.
-- **Database:** SQLite accessed through Entity Framework Core migrations.
+- **Database:** SQLite for local Development or PostgreSQL for a hosted deployment, both accessed through Entity Framework Core with separate provider-specific migration chains.
 - **Android citizen app:** React Native on Expo SDK 57; it uses the same API and Identity-backed citizen records as the website.
 - **Local development:** Vite forwards `/api` requests to the API at `http://127.0.0.1:5081`, so browser requests use the same origin as the website.
 
@@ -116,7 +116,7 @@ Status progression is `Received → UnderReview → Assigned → Resolved`, with
 
 ## Database and migrations
 
-The default SQLite file is `backend/src/Emergency112.Api/emergency112.db` when launched with the project profile. Its path is configured using `ConnectionStrings__DefaultConnection` (for example `Data Source=emergency112.db`).
+The default SQLite file is `backend/src/Emergency112.Api/emergency112.db` when launched with the project profile. `Database:Provider` defaults to SQLite in Development and can be set to `PostgreSql` for hosted environments. Provider selection is explicit outside Development. The PostgreSQL context has a separate migration chain; migrations from one provider are never used by the other.
 
 For migration authoring, install the matching EF CLI once (choose either local tool manifest or global installation):
 
@@ -130,14 +130,70 @@ From the repository root, create or apply migrations:
 dotnet ef migrations add DescribeChange `
   --project backend/src/Emergency112.Api/Emergency112.Api.csproj `
   --startup-project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --context ApplicationDbContext `
   --output-dir Data/Migrations
 
 dotnet ef database update `
   --project backend/src/Emergency112.Api/Emergency112.Api.csproj `
-  --startup-project backend/src/Emergency112.Api/Emergency112.Api.csproj
+  --startup-project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --context ApplicationDbContext
 ```
 
-Development mode applies migrations automatically on API startup. Outside Development, apply migrations before starting the API; production startup seeds roles and fictional unit reference data but does not run schema changes or create an admin account.
+Development mode applies SQLite migrations automatically on API startup. PostgreSQL migrations are generated and applied only for `PostgresApplicationDbContext`; SQLite migrations remain under `Data/Migrations` and the existing SQLite database is not replaced. PostgreSQL startup applies its migrations before seeding when `Database__MigrateOnStartup=true`; it defaults to true when PostgreSQL is explicitly selected and may be disabled when migrations are handled as a separate release step. Set it to true for a first hosted deployment so empty databases are initialized before roles and simulated response units are seeded.
+
+To add a schema change to both database providers, scaffold a separate migration for each context and review both migration files:
+
+```powershell
+dotnet ef migrations add DescribeChange `
+  --project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --startup-project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --context ApplicationDbContext `
+  --output-dir Data/Migrations
+
+dotnet ef migrations add DescribeChange `
+  --project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --startup-project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --context PostgresApplicationDbContext `
+  --output-dir Data/PostgresMigrations
+```
+
+Do not apply an SQLite migration to PostgreSQL or a PostgreSQL migration to SQLite.
+
+To apply the PostgreSQL chain manually instead of using startup migrations, first provide `Database__Provider=PostgreSql` and the secret `DATABASE_URL` (or `ConnectionStrings__Postgres`) to the process environment, then run:
+
+```powershell
+dotnet ef database update `
+  --project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --startup-project backend/src/Emergency112.Api/Emergency112.Api.csproj `
+  --context PostgresApplicationDbContext
+```
+
+The design-time context reads its connection from the process environment; without a configured value it uses a non-production design-time placeholder and must not be used to update a database.
+
+## Neon PostgreSQL and Render deployment
+
+The API container is defined in the repository-root `Dockerfile`. Create a Render Web Service from this repository using Docker and the repository root as its build context. Configure the service health check path as `/api/health`. The container binds to Render's `PORT` value and serves HTTP behind Render's HTTPS edge. Swagger remains Development-only. Production authentication cookies stay `HttpOnly`, `SameSite=Strict`, and `Secure`.
+
+Set these environment variables in the Render service's private environment settings. Do not put the Neon connection URI in Git, Docker build arguments, source files, logs, or this README:
+
+| Environment variable | Required value |
+|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Production` |
+| `Database__Provider` | `PostgreSql` |
+| `DATABASE_URL` | The Neon PostgreSQL connection URI from the Neon dashboard (`postgresql://...`). The application parses it and enforces TLS certificate and host verification. Alternatively, provide an Npgsql keyword connection string as `ConnectionStrings__Postgres`; TLS verification is still enforced. |
+| `Database__MigrateOnStartup` | `true` for initial deployment and deployments that apply migrations on API startup. Set `false` only when an explicit migration step has already completed. |
+| `Frontend__AllowedOrigins__0` | Exact deployed website origin, including `https://` and no path (for example `https://app.example.com`). Add further indexed entries for other trusted origins. Wildcards and non-HTTPS production origins are rejected. |
+| `Seed__AdminEnabled` | Set to `true` only when provisioning the first hosted administrator. Omit or set `false` to create no administrator. |
+| `Seed__AdminEmail` | The administrator email, only when admin provisioning is enabled. |
+| `Seed__AdminPassword` | A newly generated, strong password, only when admin provisioning is enabled. Keep it in Render's secret environment settings. |
+
+The PostgreSQL provider is Npgsql EF Core 10.0.3, compatible with the project's EF Core 10 dependencies. Neon URIs with URL-encoded credentials and their `channel_binding` option are supported; URI `sslmode` cannot disable TLS because the application forces `VerifyFull`. Database errors are not configured to include connection-string values, and application code does not log database configuration.
+
+Migrations run before idempotent creation of the Citizen/Admin roles and clearly fictional response units. No administrator account is created unless `Seed__AdminEnabled=true` and both administrator values are configured. Public registration continues to assign only Citizen. Create and securely store the initial admin password in Render's environment settings; the application never supplies a default.
+
+The production CORS policy allows only configured HTTPS website origins and credentialed requests. Keep the API and website on the same site (for example, sibling subdomains of a custom domain) because the existing `SameSite=Strict` cookie policy is intentionally preserved. A frontend and API on unrelated sites may not exchange cookie-authenticated requests even if CORS is configured.
+
+No Neon account is connected or modified by this repository change. After creating the Neon database, copy its URI directly into Render's `DATABASE_URL` environment setting. Render terminates public HTTPS; the container's HTTP listener is private behind that edge, while browser authentication cookies remain Secure.
 
 ## Configuration
 
@@ -145,11 +201,15 @@ Configuration uses standard ASP.NET Core configuration providers. For environmen
 
 | Setting | Default / purpose |
 |---|---|
+| `Database__Provider` | Defaults to `Sqlite` in Development. Set `PostgreSql` in a hosted environment. Other environments must explicitly select a provider. |
+| `Database__MigrateOnStartup` | Defaults on in Development and when PostgreSQL is selected. Set `false` only when a separate migration step has already applied the selected context's migrations. |
 | `ConnectionStrings__DefaultConnection` | `Data Source=emergency112.db` |
+| `DATABASE_URL` | PostgreSQL URI for Neon, read only when `Database__Provider=PostgreSql`; connection uses TLS with certificate and hostname verification. `ConnectionStrings__Postgres` also accepts an Npgsql connection string. |
 | `Frontend__AllowedOrigins__0` | `http://127.0.0.1:5173` |
 | `Frontend__AllowedOrigins__1` | `http://localhost:5173` |
 | `Seed__AdminEmail` | Required to create a Development admin account |
 | `Seed__AdminPassword` | Required to create a Development admin account; keep it outside source control |
+| `Seed__AdminEnabled` | Must be `true` along with the email and password to provision a hosted administrator; no administrator is created by default. |
 | `VITE_API_BASE_URL` | Defaults to `/api`; set only when the API is hosted elsewhere |
 
 Identity requires a 12-character password with uppercase, lowercase, digit, and non-alphanumeric characters. Cookies use ASP.NET Core's data-protection key ring. Production cookies require HTTPS; configure a persistent protected key store for multi-instance hosting. Keep the allowed CORS origins narrow and HTTPS-only for a deployed environment.
