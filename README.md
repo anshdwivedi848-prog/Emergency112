@@ -10,6 +10,7 @@ Emergency112 is a college demonstration project for a simulated emergency report
 - **API:** ASP.NET Core Web API on .NET 10, with development-only Swagger UI.
 - **Authentication:** ASP.NET Core Identity with hashed passwords and HttpOnly, SameSite cookies. Admin authorization is enforced by API role policies.
 - **Database:** SQLite for local Development or PostgreSQL for a hosted deployment, both accessed through Entity Framework Core with separate provider-specific migration chains.
+- **Single-service hosting:** Render runs one Docker web service; the ASP.NET Core API serves the React/Vite assets and client-side routes from the same HTTPS origin, with API calls using `/api`.
 - **Android citizen app:** React Native on Expo SDK 57; it uses the same API and Identity-backed citizen records as the website.
 - **Local development:** Vite forwards `/api` requests to the API at `http://127.0.0.1:5081`, so browser requests use the same origin as the website.
 
@@ -139,7 +140,7 @@ dotnet ef database update `
   --context ApplicationDbContext
 ```
 
-Development mode applies SQLite migrations automatically on API startup. PostgreSQL migrations are generated and applied only for `PostgresApplicationDbContext`; SQLite migrations remain under `Data/Migrations` and the existing SQLite database is not replaced. PostgreSQL startup applies its migrations before seeding when `Database__MigrateOnStartup=true`; it defaults to true when PostgreSQL is explicitly selected and may be disabled when migrations are handled as a separate release step. Set it to true for a first hosted deployment so empty databases are initialized before roles and simulated response units are seeded.
+Development mode applies SQLite migrations automatically on API startup. PostgreSQL migrations are generated and applied only for `PostgresApplicationDbContext`; SQLite migrations remain under `Data/Migrations` and the existing SQLite database is not replaced. PostgreSQL startup applies its migrations before seeding when `Database__MigrateOnStartup=true`; it defaults to true when PostgreSQL is explicitly selected and may be disabled when migrations are handled as a separate release step. Startup completes migrations and seeding before the server begins accepting requests. Set it to true for a first hosted deployment so empty databases are initialized before roles and simulated response units are seeded.
 
 To add a schema change to both database providers, scaffold a separate migration for each context and review both migration files:
 
@@ -172,7 +173,7 @@ The design-time context reads its connection from the process environment; witho
 
 ## Neon PostgreSQL and Render deployment
 
-The API container is defined in the repository-root `Dockerfile`. Create a Render Web Service from this repository using Docker and the repository root as its build context. Configure the service health check path as `/api/health`. The container binds to Render's `PORT` value and serves HTTP behind Render's HTTPS edge. Swagger remains Development-only. Production authentication cookies stay `HttpOnly`, `SameSite=Strict`, and `Secure`.
+The repository-root `Dockerfile` builds the website with Node.js 22 and pnpm 11.25.0 using the locked dependencies, publishes the .NET 10 API, then copies the website output into the API's `wwwroot`. The final image serves both the website and API from one Render Web Service and one HTTPS origin. It runs as a non-root user. Create the Render service from this repository using Docker and the repository root as its build context; set the HTTP health check path to `/api/health`. The container binds to `0.0.0.0:$PORT` behind Render's HTTPS edge. Client-side paths serve the website entry document, while unknown `/api` routes return a JSON 404. Swagger remains Development-only. Production authentication cookies stay `HttpOnly`, `SameSite=Strict`, and `Secure`.
 
 Set these environment variables in the Render service's private environment settings. Do not put the Neon connection URI in Git, Docker build arguments, source files, logs, or this README:
 
@@ -182,8 +183,8 @@ Set these environment variables in the Render service's private environment sett
 | `Database__Provider` | `PostgreSql` |
 | `DATABASE_URL` | The Neon PostgreSQL connection URI from the Neon dashboard (`postgresql://...`). The application parses it and enforces TLS certificate and host verification. Alternatively, provide an Npgsql keyword connection string as `ConnectionStrings__Postgres`; TLS verification is still enforced. |
 | `Database__MigrateOnStartup` | `true` for initial deployment and deployments that apply migrations on API startup. Set `false` only when an explicit migration step has already completed. |
-| `Frontend__AllowedOrigins__0` | Exact deployed website origin, including `https://` and no path (for example `https://app.example.com`). Add further indexed entries for other trusted origins. Wildcards and non-HTTPS production origins are rejected. |
-| `Seed__AdminEnabled` | Set to `true` only when provisioning the first hosted administrator. Omit or set `false` to create no administrator. |
+| `Frontend__AllowedOrigins__0` | Exact HTTPS origin assigned to this Render service, copied from its service URL with no path or trailing slash. Wildcards and non-HTTPS production origins are rejected. |
+| `Seed__AdminEnabled` | Set to `true` only while provisioning the first hosted administrator. After confirming the account can sign in, set it to `false` or remove it, and remove the admin email/password environment values; the account remains in Neon. |
 | `Seed__AdminEmail` | The administrator email, only when admin provisioning is enabled. |
 | `Seed__AdminPassword` | A newly generated, strong password, only when admin provisioning is enabled. Keep it in Render's secret environment settings. |
 
@@ -191,7 +192,7 @@ The PostgreSQL provider is Npgsql EF Core 10.0.3, compatible with the project's 
 
 Migrations run before idempotent creation of the Citizen/Admin roles and clearly fictional response units. No administrator account is created unless `Seed__AdminEnabled=true` and both administrator values are configured. Public registration continues to assign only Citizen. Create and securely store the initial admin password in Render's environment settings; the application never supplies a default.
 
-The production CORS policy allows only configured HTTPS website origins and credentialed requests. Keep the API and website on the same site (for example, sibling subdomains of a custom domain) because the existing `SameSite=Strict` cookie policy is intentionally preserved. A frontend and API on unrelated sites may not exchange cookie-authenticated requests even if CORS is configured.
+The production CORS policy keeps the exact configured HTTPS origin and credentialed-request policy; it rejects wildcard origins. The deployed website calls the API through relative `/api` paths, so authentication does not depend on a separate API origin. `Frontend__AllowedOrigins__0` is still required by production startup validation and should match the Render website/API origin exactly. `SameSite=Strict` and `Secure` cookie settings remain unchanged.
 
 No Neon account is connected or modified by this repository change. After creating the Neon database, copy its URI directly into Render's `DATABASE_URL` environment setting. Render terminates public HTTPS; the container's HTTP listener is private behind that edge, while browser authentication cookies remain Secure.
 
@@ -210,7 +211,7 @@ Configuration uses standard ASP.NET Core configuration providers. For environmen
 | `Seed__AdminEmail` | Required to create a Development admin account |
 | `Seed__AdminPassword` | Required to create a Development admin account; keep it outside source control |
 | `Seed__AdminEnabled` | Must be `true` along with the email and password to provision a hosted administrator; no administrator is created by default. |
-| `VITE_API_BASE_URL` | Defaults to `/api`; set only when the API is hosted elsewhere |
+| `VITE_API_BASE_URL` | Defaults to `/api`; the single-service Docker build explicitly sets `/api`. Do not configure an external API URL for this Render deployment. |
 
 Identity requires a 12-character password with uppercase, lowercase, digit, and non-alphanumeric characters. Cookies use ASP.NET Core's data-protection key ring. Production cookies require HTTPS; configure a persistent protected key store for multi-instance hosting. Keep the allowed CORS origins narrow and HTTPS-only for a deployed environment.
 
@@ -222,7 +223,7 @@ pnpm test
 pnpm build
 ```
 
-The xUnit suite uses an in-memory SQLite database and covers migrations, registration/login, incident persistence and validation, citizen ownership boundaries, admin authorization, status transitions, status history, unit assignment, audit events, and deletion. Vitest covers API request credentials/errors, form validation, and denied geolocation fallback.
+The xUnit suite uses an in-memory SQLite database and covers migrations, registration/login, incident persistence and validation, citizen ownership boundaries, admin authorization, status transitions, status history, unit assignment, audit events, deletion, and SPA/API fallback routing. Vitest covers API request credentials/errors, form validation, and denied geolocation fallback.
 
 ## Troubleshooting
 

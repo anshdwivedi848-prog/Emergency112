@@ -24,4 +24,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="TestAssets/index.html" CopyToOutputDirectory="PreserveNewest" TargetPath="TestWebRoot/index.html" />
+  </ItemGroup>
+
 </Project>

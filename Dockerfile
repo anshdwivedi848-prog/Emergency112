@@ -1,4 +1,13 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM node:22-slim AS website-build
+WORKDIR /website
+RUN npm install --global pnpm@11.25.0
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY index.html vite.config.ts vitest.config.ts tsconfig*.json ./
+COPY src ./src
+RUN VITE_API_BASE_URL=/api pnpm build
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api-build
 WORKDIR /source
 
 COPY backend/src/Emergency112.Api/Emergency112.Api.csproj backend/src/Emergency112.Api/
@@ -14,7 +23,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 ENV ASPNETCORE_ENVIRONMENT=Production
 USER app
-COPY --from=build /app/publish .
+COPY --from=api-build /app/publish ./
+COPY --from=website-build /website/dist/ ./wwwroot/
 EXPOSE 10000
 
 # Render supplies PORT at runtime; the fallback supports local `docker run`.

@@ -5,6 +5,8 @@
 .agents
 node_modules
 **/node_modules
+**/.pnpm-store
+**/.cache
 dist
 **/dist
 coverage
@@ -14,7 +16,6 @@ build
 web-build
 **/web-build
 mobile
-src
 docs
 backend/tests
 backend/.local-tools
@@ -24,6 +25,8 @@ backend/**/obj
 backend/**/TestResults
 backend/**/appsettings*.json
 !backend/src/Emergency112.Api/appsettings.example.json
+**/.expo
+**/.gradle
 **/.env
 **/.env.*
 **/secrets.*

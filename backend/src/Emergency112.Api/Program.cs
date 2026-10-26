@@ -69,6 +69,8 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseCors("frontend");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -95,6 +97,14 @@ await using (var scope = app.Services.CreateAsyncScope())
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", mode = "simulated" }))
     .WithTags("Health");
 app.MapControllers();
+app.MapFallback("/api/{*path}", async context =>
+{
+    var problem = Results.Problem(
+        statusCode: StatusCodes.Status404NotFound,
+        title: "API endpoint not found.");
+    await problem.ExecuteAsync(context);
+});
+app.MapFallbackToFile("{*path:nonfile}", "index.html");
 app.Run();
 
 static void ValidateAllowedOrigins(string[] origins, bool development)
